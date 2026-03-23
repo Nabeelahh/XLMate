@@ -296,6 +296,9 @@ impl GameContract {
             return Err(ContractError::GameNotInProgress);
         }
 
+        // Require authorization from the game creator to distribute tournament funds
+        game.player1.require_auth();
+
         // Validate arrays
         if winners.len() != percentages.len() {
             return Err(ContractError::MismatchedLengths);
@@ -312,6 +315,21 @@ impl GameContract {
         }
 
         let mut escrow: Map<Address, i128> = env.storage().instance().get(&ESCROW).unwrap_or(Map::new(&env));
+
+        // Validate sufficient balances before any debit to prevent negative escrow and double payouts
+        let player1_escrow = escrow.get(game.player1.clone()).unwrap_or(0);
+        if player1_escrow < game.wager_amount {
+            return Err(ContractError::InsufficientFunds);
+        }
+
+        let mut player2_escrow = 0;
+        if let Some(ref player2) = game.player2 {
+            player2_escrow = escrow.get(player2.clone()).unwrap_or(0);
+            if player2_escrow < game.wager_amount {
+                return Err(ContractError::InsufficientFunds);
+            }
+        }
+
         let total_pool = game.wager_amount * 2;
         let mut distributed: i128 = 0;
 
@@ -336,11 +354,9 @@ impl GameContract {
         }
 
         // Subtract from losers (which are both players since total_pool uses both their wagers)
-        let player1_escrow = escrow.get(game.player1.clone()).unwrap_or(0);
         escrow.set(game.player1.clone(), player1_escrow - game.wager_amount);
 
         if let Some(ref player2) = game.player2 {
-            let player2_escrow = escrow.get(player2.clone()).unwrap_or(0);
             escrow.set(player2.clone(), player2_escrow - game.wager_amount);
         }
 

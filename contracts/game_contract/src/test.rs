@@ -41,7 +41,7 @@ fn test_payout_tournament() {
     percentages.push_back(20);
 
     // Call payout_tournament
-    client.payout_tournament(&game_id, &winners, &percentages);
+    client.mock_all_auths().payout_tournament(&game_id, &winners, &percentages);
 
     // Total pool should be wager * 2 = 2000
     // Expected payouts: 50% = 1000, 30% = 600, 20% = 400
@@ -109,7 +109,7 @@ fn test_payout_tournament_dust() {
     // Remainder: 666 - 665 = 1
     // With remainder to first place: w1 gets 333 + 1 = 334.
 
-    client.payout_tournament(&game_id, &winners, &percentages);
+    client.mock_all_auths().payout_tournament(&game_id, &winners, &percentages);
 
     env.as_contract(&contract_id, || {
         let escrow: Map<Address, i128> = env.storage().instance().get(&ESCROW).unwrap();
@@ -156,7 +156,7 @@ fn test_payout_tournament_invalid_percentage() {
     let mut percentages = Vec::new(&env);
     percentages.push_back(90); // Does not equal 100
 
-    let res = client.try_payout_tournament(&game_id, &winners, &percentages);
+    let res = client.mock_all_auths().try_payout_tournament(&game_id, &winners, &percentages);
     
     // Result should be Err matching InvalidPercentage (12)
     assert!(res.is_err());
