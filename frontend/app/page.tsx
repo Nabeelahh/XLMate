@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 const ChessboardComponent = dynamic(() => import("@/components/chess/ChessboardComponent"), { ssr: false });
 import { Chess } from "chess.js";
 const GameModeButtons = dynamic(() => import("@/components/GameModeButtons"), { ssr: false });
 import { FaUser } from "react-icons/fa";
 import { RiAliensFill } from "react-icons/ri";
+import { useChessSocket } from "@/hook/useChessSocket";
+import { useMatchmaking } from "@/hook/useMatchmaking";
 
 export default function Home() {
   const [game] = useState(new Chess());
@@ -14,14 +16,31 @@ export default function Home() {
   const [gameMode, setGameMode] = useState<"online" | "bot" | null>(null);
 
   const {
-    status,
+    status: matchmakingStatus,
     playerColor,
     error: matchmakingError,
     joinMatchmaking,
     cancelMatchmaking,
-    sendMove,
+    sendMove: matchmakingSendMove,
     lastOpponentMove,
+    gameId,
   } = useMatchmaking();
+
+  const {
+    status: socketStatus,
+    sendMove: socketSendMove,
+    disconnect: disconnectSocket,
+    reconnect: reconnectSocket,
+  } = useChessSocket(gameId);
+
+  // Choose which sendMove to use based on game state
+  const sendMove = useCallback((from: string, to: string, promotion?: string) => {
+    if (gameId) {
+      socketSendMove({ from, to, promotion: promotion || "q" });
+    } else {
+      matchmakingSendMove(from, to, promotion);
+    }
+  }, [gameId, socketSendMove, matchmakingSendMove]);
 
   // Kick off matchmaking when online mode is selected
   useEffect(() => {
@@ -48,7 +67,7 @@ export default function Home() {
 
   const isMyTurn =
     gameMode !== "online" ||
-    (status === "connected" &&
+    (socketStatus === "connected" &&
       ((playerColor === "white" && game.turn() === "w") ||
         (playerColor === "black" && game.turn() === "b")));
 
@@ -83,7 +102,10 @@ export default function Home() {
   };
 
   const handleExit = () => {
-    if (gameMode === "online") cancelMatchmaking();
+    if (gameMode === "online") {
+      cancelMatchmaking();
+      disconnectSocket();
+    }
     game.reset();
     setPosition("start");
     setGameMode(null);
@@ -95,10 +117,11 @@ export default function Home() {
 
   // Searching / waiting overlay label
   const onlineStatusLabel = () => {
-    if (status === "searching") return "🔍 Searching for opponent…";
-    if (status === "match_found") return "✅ Match found! Starting…";
-    if (status === "connected") return `🟢 Online Match (you are ${playerColor})`;
-    if (status === "error") return `❌ ${matchmakingError ?? "Connection error"}`;
+    if (socketStatus === "reconnecting") return "🔄 Reconnecting...";
+    if (matchmakingStatus === "searching") return "🔍 Searching for opponent…";
+    if (matchmakingStatus === "match_found") return "✅ Match found! Starting…";
+    if (socketStatus === "connected") return `🟢 Online Match (you are ${playerColor})`;
+    if (matchmakingStatus === "error" || socketStatus === "error") return `❌ ${matchmakingError ?? "Connection error"}`;
     return "Online Match";
   };
 
@@ -155,10 +178,29 @@ export default function Home() {
             )}
 
             {/* Searching spinner */}
-            {gameMode === "online" && status === "searching" && (
+            {gameMode === "online" && matchmakingStatus === "searching" && (
               <div className="mt-3 flex items-center gap-2 text-teal-400 text-sm animate-pulse px-1">
                 <div className="w-3 h-3 rounded-full border-2 border-teal-400 border-t-transparent animate-spin" />
                 Waiting for an opponent to join…
+              </div>
+            )}
+
+            {/* Reconnection overlay */}
+            {gameMode === "online" && socketStatus === "reconnecting" && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
+                <div className="bg-gray-800 p-6 rounded-xl border border-yellow-500/30 text-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-8 h-8 rounded-full border-2 border-yellow-500 border-t-transparent animate-spin" />
+                    <h3 className="text-xl font-bold text-yellow-400">Reconnecting...</h3>
+                    <p className="text-gray-300 text-sm">Attempting to restore connection</p>
+                    <button
+                      onClick={reconnectSocket}
+                      className="mt-2 px-4 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 rounded-lg text-yellow-400 font-medium transition-all duration-300"
+                    >
+                      Reconnect Now
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

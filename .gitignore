@@ -8,3 +8,4 @@ target/
 GITHUB_ISSUES.md
 
 /*/report.md
+node_modules

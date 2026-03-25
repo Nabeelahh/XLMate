@@ -1,16 +1,19 @@
 "use client";
 
 import React from "react";
-import { FaUser } from "react-icons/fa";
+import { FaUser, FaTrophy } from "react-icons/fa";
 import { RiAliensFill } from "react-icons/ri";
 import Lottie from "lottie-react";
 import chessAnimation from "@/public/assets/chess.json";
+import { useRouter } from "next/navigation";
 
 interface GameModeButtonsProps {
   setGameMode: (mode: "online" | "bot" | null) => void;
 }
 
 const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
+  const router = useRouter();
+
   return (
     <>
       {/* Lottie Animation */}
@@ -74,6 +77,32 @@ const GameModeButtons: React.FC<GameModeButtonsProps> = ({ setGameMode }) => {
           <div className="corner top-right absolute w-[30px] h-[30px] bg-[#008e90]" />
           <div className="corner bottom-left absolute w-[30px] h-[30px] bg-[#008e90]" />
           <div className="corner bottom-right absolute w-[30px] h-[30px] bg-[#008e90]" />
+        </button>
+      </div>
+
+      <div className="play-button-container relative">
+        <button
+          onClick={() => router.push("/puzzles")}
+          className="play-button w-full p-4 relative border-none outline-none cursor-pointer transition-all duration-300 ease-in-out z-[2] overflow-hidden flex items-center justify-center bg-transparent"
+        >
+          <span className="button-text flex items-center gap-6 z-[3]">
+            <div className="bg-yellow-400/20 p-3 rounded-full shadow-lg">
+              <FaTrophy className="text-3xl text-white filter drop-shadow-md" />
+            </div>
+            <div className="text-left">
+              <h3 className="text-lg font-bold text-white mb-0.5">
+                Learn & Earn
+              </h3>
+              <p className="text-yellow-100 text-xs">
+                Solve puzzles to earn XLM rewards
+              </p>
+            </div>
+          </span>
+          <div className="clip absolute inset-0 border-[5px] border-solid border-transparent bg-gradient-to-r from-yellow-500 to-orange-600 transition-all duration-300 ease-in-out" />
+          <div className="corner top-left absolute w-[30px] h-[30px] bg-yellow-500" />
+          <div className="corner top-right absolute w-[30px] h-[30px] bg-orange-600" />
+          <div className="corner bottom-left absolute w-[30px] h-[30px] bg-yellow-500" />
+          <div className="corner bottom-right absolute w-[30px] h-[30px] bg-orange-600" />
         </button>
       </div>
       <style jsx>{`
