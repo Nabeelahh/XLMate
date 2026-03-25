@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState } from "react";
 import { FaTrophy, FaStar, FaCheck, FaTimes, FaRedo, FaArrowLeft } from "react-icons/fa";
 
