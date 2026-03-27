@@ -2,7 +2,46 @@
 extern crate std;
 
 use super::*;
-use soroban_sdk::{Address, Env, Map, Vec, testutils::Address as _};
+use soroban_sdk::{testutils::Address as _, Address, Env, Map, Vec};
+
+/// Helper: seed a completed game directly into contract storage, bypassing
+/// token transfers and auth checks.  Returns the game_id (always 1).
+fn seed_completed_game(
+    env: &Env,
+    contract_id: &Address,
+    player1: &Address,
+    player2: &Address,
+    wager: i128,
+) -> u64 {
+    let game_id: u64 = 1;
+    env.as_contract(contract_id, || {
+        // Write game counter
+        env.storage().instance().set(&GAME_COUNTER, &game_id);
+
+        // Build a completed game
+        let game = Game {
+            id: game_id,
+            player1: player1.clone(),
+            player2: Some(player2.clone()),
+            state: GameState::Completed,
+            wager_amount: wager,
+            current_turn: 1,
+            moves: Vec::new(env),
+            created_at: 0,
+            winner: None,
+        };
+        let mut games: Map<u64, Game> = Map::new(env);
+        games.set(game_id, game);
+        env.storage().instance().set(&GAMES, &games);
+
+        // Seed escrow so payout_tournament can debit both players
+        let mut escrow: Map<Address, i128> = Map::new(env);
+        escrow.set(player1.clone(), wager);
+        escrow.set(player2.clone(), wager);
+        env.storage().instance().set(&ESCROW, &escrow);
+    });
+    game_id
+}
 
 #[test]
 fn test_payout_tournament() {
@@ -12,19 +51,9 @@ fn test_payout_tournament() {
 
     let player1 = Address::generate(&env);
     let player2 = Address::generate(&env);
-    let wager = 1000;
+    let wager: i128 = 1000;
 
-    let game_id = client.create_game(&player1, &wager);
-    client.join_game(&game_id, &player2);
-
-    // Force complete the game directly in storage for testing purposes
-    env.as_contract(&contract_id, || {
-        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
-        let mut game = games.get(game_id).unwrap();
-        game.state = GameState::Completed;
-        games.set(game_id, game);
-        env.storage().instance().set(&GAMES, &games);
-    });
+    let game_id = seed_completed_game(&env, &contract_id, &player1, &player2, wager);
 
     let winner1 = Address::generate(&env);
     let winner2 = Address::generate(&env);
@@ -81,18 +110,9 @@ fn test_payout_tournament_dust() {
     let player2 = Address::generate(&env);
 
     // An amount that creates an uneven division for testing "precision" remainder distribution
-    let wager = 333; // total pool = 666
+    let wager: i128 = 333; // total pool = 666
 
-    let game_id = client.create_game(&player1, &wager);
-    client.join_game(&game_id, &player2);
-
-    env.as_contract(&contract_id, || {
-        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
-        let mut game = games.get(game_id).unwrap();
-        game.state = GameState::Completed;
-        games.set(game_id, game);
-        env.storage().instance().set(&GAMES, &games);
-    });
+    let game_id = seed_completed_game(&env, &contract_id, &player1, &player2, wager);
 
     let winner1 = Address::generate(&env);
     let winner2 = Address::generate(&env);
@@ -107,9 +127,9 @@ fn test_payout_tournament_dust() {
     percentages.push_back(50); // 333
     percentages.push_back(30); // 199.8 -> 199
     percentages.push_back(20); // 133.2 -> 133
-    // Sum without remainder distribution: 333 + 199 + 133 = 665
-    // Remainder: 666 - 665 = 1
-    // With remainder to first place: w1 gets 333 + 1 = 334.
+                               // Sum without remainder distribution: 333 + 199 + 133 = 665
+                               // Remainder: 666 - 665 = 1
+                               // With remainder to first place: w1 gets 333 + 1 = 334.
 
     client
         .mock_all_auths()
@@ -139,18 +159,9 @@ fn test_payout_tournament_invalid_percentage() {
 
     let player1 = Address::generate(&env);
     let player2 = Address::generate(&env);
-    let wager = 1000;
+    let wager: i128 = 1000;
 
-    let game_id = client.create_game(&player1, &wager);
-    client.join_game(&game_id, &player2);
-
-    env.as_contract(&contract_id, || {
-        let mut games: Map<u64, Game> = env.storage().instance().get(&GAMES).unwrap();
-        let mut game = games.get(game_id).unwrap();
-        game.state = GameState::Completed;
-        games.set(game_id, game);
-        env.storage().instance().set(&GAMES, &games);
-    });
+    let game_id = seed_completed_game(&env, &contract_id, &player1, &player2, wager);
 
     let winner1 = Address::generate(&env);
 

@@ -1,11 +1,8 @@
 #![no_std]
 use soroban_sdk::token::TokenClient;
 use soroban_sdk::{
-    Address, Env, Map, Symbol, Vec, contract, contracterror, contractimpl, contracttype,
-    symbol_short,
-use soroban_sdk::{
-    Address, Bytes, BytesN, Env, Map, Symbol, Vec, contract, contracterror, contractimpl,
-    contracttype, symbol_short,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env,
+    Map, Symbol, Vec,
 };
 
 // Game states
@@ -70,10 +67,10 @@ pub enum ContractError {
     GameAlreadyCompleted = 9,
     DrawNotAvailable = 10,
     ForfeitNotAllowed = 11,
-    /// Returned when an invalid or already-used backend signature is submitted.
-    Unauthorized = 14,
     InvalidPercentage = 12,
     MismatchedLengths = 13,
+    /// Returned when an invalid or already-used backend signature is submitted.
+    Unauthorized = 14,
 }
 
 #[contract]
@@ -81,11 +78,11 @@ pub struct GameContract;
 
 #[contractimpl]
 impl GameContract {
-    pub fn initialize(env: Env, token_contract: Address) {
+    pub fn initialize_token(env: Env, admin: Address, token_contract: Address) {
         if env.storage().instance().has(&TOKEN_CONTRACT) {
             panic!("Contract already initialized");
         }
-        token_contract.require_auth();
+        admin.require_auth();
         env.storage()
             .instance()
             .set(&TOKEN_CONTRACT, &token_contract);
@@ -102,15 +99,21 @@ impl GameContract {
         TokenClient::new(env, &Self::token_contract_address(env))
     }
 
-    // Create a new game with token-based escrow
-    pub fn create_game(env: Env, player1: Address, wager_amount: i128) -> u64 {
+    // FIX 3: Changed `panic!("Insufficient funds")` to return
+    // `Err(ContractError::InsufficientFunds)` for consistent API behavior
+    // with `join_game` which already uses the Result-based error pattern.
+    pub fn create_game(
+        env: Env,
+        player1: Address,
+        wager_amount: i128,
+    ) -> Result<u64, ContractError> {
         player1.require_auth();
 
         let token_client = Self::token_client(&env);
         let contract_address = env.current_contract_address();
         let player_balance = token_client.balance(&player1);
         if player_balance < wager_amount {
-            panic!("Insufficient funds");
+            return Err(ContractError::InsufficientFunds);
         }
 
         token_client.transfer(&player1, &contract_address, &wager_amount);
@@ -152,7 +155,7 @@ impl GameContract {
         escrow.set(player1, current_escrow + wager_amount);
         env.storage().instance().set(&ESCROW, &escrow);
 
-        game_counter
+        Ok(game_counter)
     }
 
     // Join an existing game
@@ -457,7 +460,7 @@ impl GameContract {
             escrow.set(winner.clone(), winner_escrow + payout_amount);
         }
 
-        // Verify precisely equals or distribute remainder to the first winner to avoid dust
+        // Distribute any integer-division remainder to the first winner to avoid dust
         let remainder = total_pool - distributed;
         if remainder > 0 && winners.len() > 0 {
             let first_winner = winners.get(0).unwrap();
@@ -538,7 +541,6 @@ impl GameContract {
         let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
         escrow.set(winner.clone(), winner_escrow + (game.wager_amount * 2));
 
-
         // Transfer both wagers to winner
         let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
         escrow.set(winner.clone(), winner_escrow + (game.wager_amount * 2));
@@ -571,7 +573,6 @@ impl GameContract {
         let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
         escrow.set(winner.clone(), winner_escrow + (game.wager_amount * 2));
 
-
         // Transfer both wagers to winner
         let winner_escrow = escrow.get(winner.clone()).unwrap_or(0);
         escrow.set(winner.clone(), winner_escrow + (game.wager_amount * 2));
@@ -600,7 +601,9 @@ impl GameContract {
     /// # Arguments
     /// * `admin_public_key` - 32-byte ED25519 public key of the backend signing service
     /// * `treasury_amount`  - Tokens pre-funded into the treasury for puzzle payouts
-    pub fn initialize(env: Env, admin_public_key: Bytes, treasury_amount: i128) {
+    // FIX 1 (continued): Renamed from `initialize` to `initialize_puzzle_rewards`
+    // to resolve the duplicate function name compilation error.
+    pub fn initialize_puzzle_rewards(env: Env, admin_public_key: Bytes, treasury_amount: i128) {
         // Prevent re-initialization
         if env.storage().instance().has(&ADMIN_KEY) {
             panic!("Already initialized");
@@ -663,39 +666,24 @@ impl GameContract {
         }
 
         // ── 3. Build the canonical payload and verify the ED25519 signature ──
-        //
-        // Payload layout (variable-length):
-        //   recipient_raw_bytes  (as serialised by soroban_sdk)
-        //   || reward_amount     (8-byte little-endian i128 low word)
-        //   || nonce             (8-byte little-endian u64)
-        //
-        // We hash the concatenation with SHA-256 first so the payload is
-        // always 32 bytes regardless of recipient address length.
         let mut payload_bytes = Bytes::new(&env);
 
-        // Append serialised recipient address bytes.
-        // soroban_sdk::String::copy_into_slice is available in #[no_std];
-        // Stellar addresses are always 56 ASCII chars (G... or C...).
         let recipient_str = recipient.clone().to_string();
         let str_len = recipient_str.len() as usize;
         let mut addr_buf = [0u8; 64];
         recipient_str.copy_into_slice(&mut addr_buf[..str_len]);
         payload_bytes.append(&Bytes::from_slice(&env, &addr_buf[..str_len]));
 
-        // Append reward_amount as little-endian bytes (i64 cast; amounts fit)
         let amount_le: [u8; 8] = (reward_amount as i64).to_le_bytes();
         payload_bytes.append(&Bytes::from_slice(&env, &amount_le));
 
-        // Append nonce as little-endian bytes
         let nonce_le: [u8; 8] = nonce.to_le_bytes();
         payload_bytes.append(&Bytes::from_slice(&env, &nonce_le));
 
-        // SHA-256 digest: Hash<32> → BytesN<32> → Bytes (type ed25519_verify expects)
         let digest_bytesn: BytesN<32> = env.crypto().sha256(&payload_bytes).into();
         let digest_bytes: Bytes = digest_bytesn.into();
 
         // Verify the ED25519 signature — Soroban panics on failure.
-        // The panic satisfies the "panics with Unauthorized" acceptance criterion.
         env.crypto()
             .ed25519_verify(&admin_pubkey, &digest_bytes, &signature);
 
@@ -748,12 +736,18 @@ impl GameContract {
     }
 }
 
+// FIX 4: The original mod tests block was closed prematurely at line 774,
+// orphaning the puzzle-reward test helpers and tests (sign_payload, setup,
+// test_claim_puzzle_reward_valid_sig, etc.) outside the module. All tests
+// are now contained within a single #[cfg(test)] mod tests block.
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+    use rand::rngs::OsRng;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::token::{StellarAssetClient, TokenClient};
-    use soroban_sdk::{Address, Env};
+    use soroban_sdk::{Address, Bytes, BytesN, Env};
 
     #[test]
     fn test_usdc_staking_workflow() {
@@ -777,7 +771,10 @@ mod tests {
         // Deploy game contract and initialize with token contract
         let contract_id = env.register_contract(None, GameContract);
         let client = GameContractClient::new(&env, &contract_id);
-        client.initialize(&token_address);
+
+        // Updated to match new initialize_token signature (admin, token_contract)
+        let admin = Address::generate(&env);
+        client.initialize_token(&admin, &token_address);
 
         // Player 1 creates game with USDC staking
         let initial_wager: i128 = 100;
@@ -792,14 +789,6 @@ mod tests {
         let final_player2_balance = token_client.balance(&player2);
         assert_eq!(final_player2_balance, 1_100);
     }
-}
-    use soroban_sdk::{
-        testutils::Address as _,
-        Bytes, BytesN, Env,
-    };
-    use ed25519_dalek::{Signer, SigningKey};
-    use rand::rngs::OsRng;
-    use soroban_sdk::{Bytes, BytesN, Env, testutils::Address as _};
 
     // ────────────────────────────────────────────────────────────────────────
     // Helper: build the same payload the contract builds, sign it off-chain.
@@ -813,7 +802,6 @@ mod tests {
     ) -> BytesN<64> {
         let mut payload_bytes = Bytes::new(env);
 
-        // Mirror the contract's payload construction exactly
         let recipient_str = recipient.clone().to_string();
         let str_len = recipient_str.len() as usize;
         let mut addr_buf = [0u8; 64];
@@ -826,10 +814,8 @@ mod tests {
         let nonce_le: [u8; 8] = nonce.to_le_bytes();
         payload_bytes.append(&Bytes::from_slice(env, &nonce_le));
 
-        // SHA-256 via soroban: Hash<32> → BytesN<32>
         let digest_bytesn: BytesN<32> = env.crypto().sha256(&payload_bytes).into();
 
-        // Copy digest into a plain [u8;32] for ed25519-dalek signing
         let mut digest_raw = [0u8; 32];
         digest_bytesn.copy_into_slice(&mut digest_raw);
 
@@ -839,7 +825,7 @@ mod tests {
 
     // ────────────────────────────────────────────────────────────────────────
     // Helper: register + initialize the contract with a generated admin key.
-    // Returns (client, signing_key, verifying_key_bytes).
+    // Returns (client, signing_key).
     // ────────────────────────────────────────────────────────────────────────
     fn setup(env: &Env, treasury_amount: i128) -> (GameContractClient, SigningKey) {
         let contract_id = env.register_contract(None, GameContract);
@@ -849,7 +835,7 @@ mod tests {
         let verifying_key_bytes: [u8; 32] = signing_key.verifying_key().to_bytes();
         let admin_key = Bytes::from_slice(env, &verifying_key_bytes);
 
-        client.initialize(&admin_key, &treasury_amount);
+        client.initialize_puzzle_rewards(&admin_key, &treasury_amount);
         (client, signing_key)
     }
 
@@ -870,9 +856,7 @@ mod tests {
 
         client.claim_puzzle_reward(&recipient, &reward_amount, &nonce, &sig);
 
-        // Recipient balance incremented correctly
         assert_eq!(client.reward_balance(&recipient), reward_amount);
-        // Treasury reduced correctly
         assert_eq!(client.treasury_balance(), 10_000 - reward_amount);
     }
 
@@ -888,11 +872,9 @@ mod tests {
         let (client, _signing_key) = setup(&env, 10_000);
         let recipient = Address::generate(&env);
 
-        // Build a signature from a *different* (wrong) key
         let wrong_key = SigningKey::generate(&mut OsRng);
         let bad_sig = sign_payload(&env, &wrong_key, &recipient, 500, 1);
 
-        // Must panic — Soroban's ed25519_verify panics on bad sig
         client.claim_puzzle_reward(&recipient, &500, &1, &bad_sig);
     }
 
@@ -911,10 +893,8 @@ mod tests {
 
         let sig = sign_payload(&env, &signing_key, &recipient, reward_amount, nonce);
 
-        // First call succeeds
         client.claim_puzzle_reward(&recipient, &reward_amount, &nonce, &sig);
 
-        // Second call with same nonce must return Unauthorized
         let sig2 = sign_payload(&env, &signing_key, &recipient, reward_amount, nonce);
         let result = client.try_claim_puzzle_reward(&recipient, &reward_amount, &nonce, &sig2);
         assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
