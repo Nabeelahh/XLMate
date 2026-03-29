@@ -1,7 +1,7 @@
 use actix::prelude::*;
 use actix_web::{HttpRequest, HttpResponse, Error, web};
 use actix_web_actors::ws;
-use serde::{Serialize};
+use serde::{Serialize, Deserialize};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use security::jwt::{Claims, TokenType};
@@ -10,14 +10,8 @@ use actix_web::error::ErrorUnauthorized;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-// For Redis Pub/Sub
-use redis::AsyncCommands;
-use redis::aio::ConnectionManager;
-use tokio::task::JoinHandle;
-use std::sync::Arc;
-
 /// Core WebSocket message types
-#[derive(Message, Serialize, Clone, Debug, PartialEq)]
+#[derive(Message, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[rtype(result = "()")]
 #[serde(tag = "type", content = "payload")]
 pub enum WsMessage {
@@ -104,12 +98,9 @@ impl Handler<Broadcast> for LobbyState {
 pub struct WsSession {
     pub game_id: String,
     pub lobby: Addr<LobbyState>,
-    pub hb: std::time::Instant,
     pub user_id: i32,
     pub username: String,
     pub session_id: String,
-    pub redis_conn: Option<Arc<ConnectionManager>>, // Redis connection for Pub/Sub
-    pub redis_sub_task: Option<JoinHandle<()>>,     // Handle for the subscription task
     hb: std::time::Instant,
 }
 
@@ -150,29 +141,6 @@ impl Actor for WsSession {
         self.hb(ctx);
         let addr = ctx.address().recipient();
         self.lobby.do_send(Connect { game_id: self.game_id.clone(), addr });
-
-        // If Redis connection is available, subscribe to match channel
-        if let Some(redis_conn) = self.redis_conn.clone() {
-            let game_id = self.game_id.clone();
-            let addr = ctx.address();
-            let channel = format!("match:{}", game_id);
-            // Spawn a background task for Redis subscription
-            let handle = tokio::spawn(async move {
-                let mut pubsub = redis_conn.clone().into_pubsub();
-                if pubsub.subscribe(&channel).await.is_ok() {
-                    let mut stream = pubsub.on_message();
-                    while let Some(msg) = stream.next().await {
-                        if let Ok(payload): Result<String, _> = msg.get_payload() {
-                            // Forward to session actor
-                            if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&payload) {
-                                let _ = addr.do_send(ws_msg);
-                            }
-                        }
-                    }
-                }
-            });
-            self.redis_sub_task = Some(handle);
-        }
     }
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
@@ -194,10 +162,6 @@ impl Actor for WsSession {
         
         let addr = ctx.address().recipient();
         self.lobby.do_send(Disconnect { game_id: self.game_id.clone(), addr });
-        // Cancel Redis subscription task if running
-        if let Some(handle) = self.redis_sub_task.take() {
-            handle.abort();
-        }
     }
 }
 
@@ -214,16 +178,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
             Ok(ws::Message::Text(text)) => {
                 // Try to parse as WsMessage
                 if let Ok(ws_msg) = serde_json::from_str::<WsMessage>(&text) {
-                    // Publish to Redis if connection available
-                    if let Some(redis_conn) = self.redis_conn.clone() {
-                        let channel = format!("match:{}", self.game_id);
-                        let payload = text.clone();
-                        // Spawn a task to publish (non-blocking)
-                        tokio::spawn(async move {
-                            let mut conn = (*redis_conn).clone();
-                            let _: redis::RedisResult<()> = conn.publish(channel, payload).await;
-                        });
-                    }
+                    // Broadcast message to all other sessions in the same game lobby
+                    self.lobby.do_send(Broadcast { 
+                        game_id: self.game_id.clone(), 
+                        message: ws_msg,
+                    });
                 }
             }
             Ok(ws::Message::Binary(_)) => {}

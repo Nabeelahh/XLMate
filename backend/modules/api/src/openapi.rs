@@ -1,7 +1,4 @@
 use utoipa::OpenApi;
-use crate::{players, games, auth, ai};
-use st_core::endpoint::{mint_nft, format_ai_metadata, generate_stellar_toml};
-use st_core::models::{AIMetadata, MintNFTRequest, MintNFTResponse};
 use utoipa::openapi::security::{SecurityScheme, HttpAuthScheme, HttpBuilder};
 use utoipa::Modify;
 
@@ -27,34 +24,6 @@ impl Modify for SecurityAddon {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        // Player endpoints
-        players::add_player,
-        players::find_player_by_id,
-        players::update_player,
-        players::delete_player,
-        
-        // Game endpoints
-        games::create_game,
-        games::get_game,
-        games::make_move,
-        games::list_games,
-        games::join_game,
-        games::abandon_game,
-        
-        // Authentication endpoints
-        auth::login,
-        auth::register,
-        
-        // AI suggestion endpoints
-        ai::get_ai_suggestion,
-        ai::analyze_position,
-        
-        // NFT endpoints
-        st_core::endpoint::mint_nft,
-        st_core::endpoint::format_ai_metadata,
-        st_core::endpoint::generate_stellar_toml,
-    ),
     components(
         schemas(
             // Player schemas
@@ -71,6 +40,7 @@ impl Modify for SecurityAddon {
             dto::games::GameStatus,
             dto::games::GameResult,
             dto::games::ListGamesQuery,
+            dto::games::ImportGameResponse,
             
             // Auth schemas
             dto::auth::LoginRequest,
@@ -85,13 +55,6 @@ impl Modify for SecurityAddon {
             dto::ai::PositionAnalysisRequest,
             dto::ai::PositionAnalysisResponse,
             dto::ai::AlternativeMove,
-            
-            // NFT schemas
-            st_core::models::AIMetadata,
-            st_core::models::NFTMintRequest,
-            st_core::models::NFTMintResponse,
-            st_core::models::MintNFTRequest,
-            st_core::models::MintNFTResponse,
             
             // Response schemas
             dto::responses::PlayerAdded,
@@ -108,7 +71,6 @@ impl Modify for SecurityAddon {
         (name = "Games", description = "Game management operations"),
         (name = "Authentication", description = "Authentication operations"),
         (name = "AI", description = "AI suggestion operations"),
-        (name = "NFT", description = "NFT minting and metadata operations"),
         (name = "WebSocket", description = "WebSocket communication protocol")
     ),
     info(

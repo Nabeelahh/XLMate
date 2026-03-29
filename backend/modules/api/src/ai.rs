@@ -6,7 +6,6 @@ use dto::{
     ai::{AiSuggestionRequest, AiSuggestionResponse, PositionAnalysisRequest, PositionAnalysisResponse},
     responses::ValidationErrorResponse,
 };
-use error::error::ApiError;
 use serde_json::json;
 use validator::Validate;
 

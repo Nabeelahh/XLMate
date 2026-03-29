@@ -3,7 +3,7 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use actix_cors::Cors;
 use dotenv::dotenv;
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::Database;
 use std::env;
 use std::sync::Arc;
 use security::JwtService;
@@ -104,8 +104,8 @@ pub async fn main() -> std::io::Result<()> {
 
     // Initialize Game Timeout Daemon
     let timeout_config = TimeoutDaemonConfig::default();
-    let timeout_daemon = Arc::new(GameTimeoutDaemon::new((**db).clone(), timeout_config));
-    
+    let timeout_daemon = Arc::new(GameTimeoutDaemon::new(db.clone(), timeout_config));
+
     // Start the timeout daemon
     if let Err(e) = timeout_daemon.start().await {
         eprintln!("Warning: Failed to start timeout daemon: {}", e);
@@ -190,14 +190,14 @@ pub async fn main() -> std::io::Result<()> {
                 web::scope("/v1/games")
                     .wrap(Governor::new(&game_governor_conf))
                     .wrap(JwtAuthMiddleware::new(jwt_secret.clone(), jwt_expiration))
+                    .service(list_games)
                     .service(create_game)
                     .service(get_game)
-                    .service(list_games)
-                    .service(join_game)
-                    .service(make_move)
                     .service(abandon_game)
-                    .service(import_game)
-                    .service(complete_game),
+                    .service(make_move)
+                    .service(join_game)
+                    .service(complete_game)
+                    .service(import_game),
             )
             // Auth routes
             .service(

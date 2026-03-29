@@ -1,8 +1,10 @@
 use actix_web::{web, HttpResponse, Result};
 use serde::{Deserialize, Serialize};
 use crate::{NFTService, AIMetadata, NFTMintRequest};
+#[cfg(feature = "api")]
 use utoipa::ToSchema;
 
+#[cfg(feature = "api")]
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MintNFTRequest {
     pub ai_metadata: AIMetadata,
@@ -10,6 +12,7 @@ pub struct MintNFTRequest {
     pub network: String,
 }
 
+#[cfg(feature = "api")]
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MintNFTResponse {
     pub success: bool,
@@ -19,26 +22,6 @@ pub struct MintNFTResponse {
     pub error: Option<String>,
 }
 
-#[utoipa::path(
-    post,
-    path = "/api/v1/nft/mint",
-    tag = "NFT",
-    summary = "Create NFT minting transaction",
-    description = "Creates a signable XDR transaction for minting an AI agent as an NFT on Stellar network following SEP-0039 standards",
-    request_body(
-        content(
-            MintNFTRequest,
-            serde_json::json!("NFT minting request")
-        ),
-        description = "NFT minting request",
-        content_type = "application/json"
-    ),
-    responses(
-        (status = 200, description = "Transaction created successfully", body = MintNFTResponse),
-        (status = 400, description = "Invalid request", body = MintNFTResponse),
-        (status = 500, description = "Internal server error", body = MintNFTResponse)
-    )
-)]
 pub async fn mint_nft(
     request: web::Json<MintNFTRequest>,
 ) -> Result<HttpResponse> {
@@ -71,24 +54,6 @@ pub async fn mint_nft(
     }
 }
 
-#[utoipa::path(
-    post,
-    path = "/api/v1/nft/metadata/format",
-    tag = "NFT",
-    summary = "Format AI metadata for NFT",
-    description = "Formats AI metadata according to Stellar SEP-0039 and EIP-721 standards",
-    request_body(
-        content(
-            AIMetadata,
-            serde_json::json!("AI metadata")
-        ),
-        description = "AI metadata to format"
-    ),
-    responses(
-        (status = 200, description = "Metadata formatted successfully", body = serde_json::Value),
-        (status = 400, description = "Invalid metadata", body = serde_json::Value)
-    )
-)]
 pub async fn format_ai_metadata(
     request: web::Json<AIMetadata>,
 ) -> Result<HttpResponse> {
@@ -109,25 +74,6 @@ pub async fn format_ai_metadata(
     }
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/v1/nft/stellar-toml",
-    tag = "NFT",
-    params(
-        ("code" = String, Query, description = "Asset code"),
-        ("issuer" = String, Query, description = "Asset issuer"),
-        ("name" = String, Query, description = "NFT name"),
-        ("description" = String, Query, description = "NFT description"),
-        ("url" = Option<String>, Query, description = "NFT URL"),
-        ("image" = Option<String>, Query, description = "NFT image URL")
-    ),
-    summary = "Generate stellar.toml for NFT",
-    description = "Generates stellar.toml content following SEP-0039 standards for the NFT",
-    responses(
-        (status = 200, description = "stellar.toml generated successfully", body = serde_json::Value),
-        (status = 400, description = "Invalid parameters", body = serde_json::Value)
-    )
-)]
 pub async fn generate_stellar_toml(
     query: web::Query<serde_json::Value>,
 ) -> Result<HttpResponse> {

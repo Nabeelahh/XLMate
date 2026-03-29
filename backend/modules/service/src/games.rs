@@ -1,7 +1,7 @@
 use db_entity::{game, prelude::Game};
 use sea_orm::{
     DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, 
-    ActiveModelTrait, Set, TransactionTrait, DatabaseTransaction,
+    ActiveModelTrait, Set, TransactionTrait,
     Condition, Order, QuerySelect, DbErr, QueryOrder
 };
 use uuid::Uuid;

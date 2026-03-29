@@ -4,11 +4,10 @@ use actix_web::{
 };
 use dto::{
     games::{
-        CreateGameRequest, GameDisplayDTO, MakeMoveRequest, JoinGameRequest,
+        CreateGameRequest, MakeMoveRequest, JoinGameRequest,
         GameStatus, ListGamesQuery, ImportGameRequest, ImportGameResponse,
         CompleteGameRequest, CompleteGameResponse,
     },
-    responses::{InvalidCredentialsResponse, NotFoundResponse},
 };
 use error::error::ApiError;
 use serde_json::json;
@@ -34,18 +33,6 @@ fn authenticated_player(req: &HttpRequest) -> Result<Uuid, HttpResponse> {
 // ---------------------------------------------------------------------------
 // POST /v1/games
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    post,
-    path = "/v1/games",
-    request_body = CreateGameRequest,
-    responses(
-        (status = 201, description = "Game created successfully",  body = GameDisplayDTO),
-        (status = 400, description = "Invalid request parameters", body = InvalidCredentialsResponse),
-        (status = 401, description = "Unauthorized",               body = InvalidCredentialsResponse)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[post("")]
 pub async fn create_game(
     req: HttpRequest,
@@ -78,19 +65,6 @@ pub async fn create_game(
 // ---------------------------------------------------------------------------
 // GET /v1/games/{id}
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    get,
-    path = "/v1/games/{id}",
-    params(
-        ("id" = String, Path, description = "Game ID in UUID format", format = "uuid")
-    ),
-    responses(
-        (status = 200, description = "Game found",     body = GameDisplayDTO),
-        (status = 404, description = "Game not found", body = NotFoundResponse)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[get("/{id}")]
 pub async fn get_game(
     id: Path<Uuid>,
@@ -118,21 +92,6 @@ pub async fn get_game(
 // ---------------------------------------------------------------------------
 // PUT /v1/games/{id}/move
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    put,
-    path = "/v1/games/{id}/move",
-    params(
-        ("id" = String, Path, description = "Game ID in UUID format", format = "uuid")
-    ),
-    request_body = MakeMoveRequest,
-    responses(
-        (status = 200, description = "Move made successfully", body = GameDisplayDTO),
-        (status = 400, description = "Invalid move",           body = InvalidCredentialsResponse),
-        (status = 404, description = "Game not found",         body = NotFoundResponse)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[put("/{id}/move")]
 pub async fn make_move(
     req: HttpRequest,
@@ -177,21 +136,6 @@ pub async fn make_move(
 // ---------------------------------------------------------------------------
 // GET /v1/games
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    get,
-    path = "/v1/games",
-    params(
-        ("status"    = Option<String>, Query, description = "Filter by status (waiting, in_progress, completed, aborted)"),
-        ("player_id" = Option<String>, Query, description = "Filter by player UUID", format = "uuid"),
-        ("page"      = Option<i32>,    Query, description = "Page number"),
-        ("limit"     = Option<i32>,    Query, description = "Items per page")
-    ),
-    responses(
-        (status = 200, description = "List of games", body = Vec<GameDisplayDTO>)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[get("")]
 pub async fn list_games(
     query: Query<ListGamesQuery>,
@@ -260,21 +204,6 @@ pub async fn list_games(
 // ---------------------------------------------------------------------------
 // POST /v1/games/{id}/join
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    post,
-    path = "/v1/games/{id}/join",
-    params(
-        ("id" = String, Path, description = "Game ID in UUID format", format = "uuid")
-    ),
-    request_body = JoinGameRequest,
-    responses(
-        (status = 200, description = "Joined game successfully", body = GameDisplayDTO),
-        (status = 400, description = "Cannot join game",         body = InvalidCredentialsResponse),
-        (status = 404, description = "Game not found",           body = NotFoundResponse)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[post("/{id}/join")]
 pub async fn join_game(
     req: HttpRequest,
@@ -313,33 +242,14 @@ pub async fn join_game(
 // ---------------------------------------------------------------------------
 // DELETE /v1/games/{id}
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    delete,
-    path = "/v1/games/{id}",
-    params(
-        ("id" = String, Path, description = "Game ID in UUID format", format = "uuid")
-    ),
-    responses(
-        (status = 200, description = "Game abandoned successfully"),
-        (status = 404, description = "Game not found",              body = NotFoundResponse)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[delete("/{id}")]
 pub async fn abandon_game(
-    req: HttpRequest,
     id: Path<Uuid>,
     db: web::Data<DatabaseConnection>,
 ) -> HttpResponse {
-    let player_id = match authenticated_player(&req) {
-        Ok(id) => id,
-        Err(resp) => return resp,
-    };
-
     let game_id = id.into_inner();
 
-    match GameService::abandon_game(db.get_ref(), game_id, player_id).await {
+    match GameService::abandon_game(db.get_ref(), game_id, Uuid::new_v4()).await {
         Ok(_) => HttpResponse::Ok().json(json!({
             "message": "Game abandoned successfully",
             "data": {}
@@ -362,18 +272,6 @@ pub async fn abandon_game(
 // ---------------------------------------------------------------------------
 // POST /v1/games/import
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    post,
-    path = "/v1/games/import",
-    request_body = ImportGameRequest,
-    responses(
-        (status = 201, description = "Game imported successfully", body = ImportGameResponse),
-        (status = 400, description = "Invalid PGN format",         body = InvalidCredentialsResponse),
-        (status = 422, description = "Illegal moves in PGN",       body = InvalidCredentialsResponse)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[post("/import")]
 pub async fn import_game(
     req: HttpRequest,
@@ -447,7 +345,7 @@ pub async fn import_game(
                 result:       result_str,
                 move_count:   validated.ply_count,
                 final_fen:    Some(validated.final_fen),
-                error:        Some("Failed to persist imported game".to_string()),
+                error:        Some(e.to_string()),
             })
         }
     }
@@ -456,21 +354,6 @@ pub async fn import_game(
 // ---------------------------------------------------------------------------
 // PUT /v1/games/{id}/complete
 // ---------------------------------------------------------------------------
-#[utoipa::path(
-    put,
-    path = "/v1/games/{id}/complete",
-    params(
-        ("id" = String, Path, description = "Game ID in UUID format", format = "uuid")
-    ),
-    request_body = CompleteGameRequest,
-    responses(
-        (status = 200, description = "Game completed and ratings updated", body = CompleteGameResponse),
-        (status = 400, description = "Invalid game result or game already completed", body = InvalidCredentialsResponse),
-        (status = 404, description = "Game not found", body = NotFoundResponse)
-    ),
-    security(("jwt_auth" = [])),
-    tag = "Games"
-)]
 #[put("/{id}/complete")]
 pub async fn complete_game(
     req: HttpRequest,
@@ -489,7 +372,7 @@ pub async fn complete_game(
 
     let game_id = id.into_inner();
 
-    // Parse the result string to the enum
+    // Parse result string to enum
     let result_enum = match payload.result.as_str() {
         "white_wins" => db_entity::game::ResultSide::WhiteWins,
         "black_wins" => db_entity::game::ResultSide::BlackWins,
@@ -537,7 +420,7 @@ pub async fn complete_game(
         }
     };
 
-    // Complete the game and update ratings
+    // Complete game and update ratings
     match GameService::complete_game(db.get_ref(), game_id, result_enum.clone(), Some(rating_config)).await {
         Ok((white_new_rating, black_new_rating)) => {
             let white_change = white_new_rating - white_old_rating;
@@ -588,5 +471,4 @@ pub async fn complete_game(
             })
         }
     }
-}
 }

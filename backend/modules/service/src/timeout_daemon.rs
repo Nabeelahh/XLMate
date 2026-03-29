@@ -3,8 +3,7 @@ use tokio::time::interval;
 use uuid::Uuid;
 use chrono::{Utc};
 use sea_orm::{
-    DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, 
-    ActiveModelTrait, Set, TransactionTrait, DatabaseTransaction, QuerySelect
+    DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, QuerySelect
 };
 use db_entity::{game, prelude::Game};
 use error::error::ApiError;
@@ -40,9 +39,9 @@ pub struct GameTimeoutDaemon {
 
 impl GameTimeoutDaemon {
     /// Create a new game timeout daemon
-    pub fn new(db: DatabaseConnection, config: TimeoutDaemonConfig) -> Self {
+    pub fn new(db: std::sync::Arc<DatabaseConnection>, config: TimeoutDaemonConfig) -> Self {
         Self {
-            db: std::sync::Arc::new(db),
+            db,
             config,
             is_running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
@@ -179,8 +178,8 @@ impl GameTimeoutDaemon {
 
     /// Check the time_control table for actual timeout information
     async fn check_time_control_table(
-        db: &DatabaseConnection,
-        game_id: Uuid,
+        _db: &DatabaseConnection,
+        _game_id: Uuid,
     ) -> Result<Option<(db_entity::game::ResultSide, String)>, ApiError> {
         // Use a simple approach - for now return None to indicate no timeout
         // In a real implementation, this would query the time_control table

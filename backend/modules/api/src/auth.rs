@@ -303,7 +303,7 @@ pub async fn logout(
         }
     };
 
-    let token = if auth_header.starts_with("Bearer ") {
+    let _token = if auth_header.starts_with("Bearer ") {
         &auth_header[7..]
     } else {
         return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -312,9 +312,8 @@ pub async fn logout(
         });
     };
 
-    // We would validate token here, but for now just extract user_id from the request
-    // In a real implementation, we'd use a JWT service to validate and extract claims
-    // For MVP, we'll accept it and revoke for user_id 1
+    // TODO: Validate token here using JWT service and extract user_id from claims
+    // For MVP, we'll accept any valid Bearer token and revoke for user_id 1
     let user_id = 1;
 
     // Revoke all tokens for this player

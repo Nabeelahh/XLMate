@@ -4,10 +4,6 @@ use actix_web::{
 };
 use dto::{
     players::{DisplayPlayer, NewPlayer, UpdatePlayer, UpdatedPlayer},
-    responses::{
-        InvalidCredentialsResponse, NotFoundResponse, PlayerAdded, PlayerDeleted, PlayerFound,
-        PlayerUpdated,
-    },
 };
 use error::error::ApiError;
 use serde_json::json;
